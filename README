@@ -1,133 +1,129 @@
-# xv6-riscv Security Extension
-## Medical Device Security Simulation
+# xv6-riscv Security Enhancements
+[![Ask DeepWiki](https://devin.ai/assets/askdeepwiki.png)](https://deepwiki.com/Hazemserry90/xv6-riscv-security.git)
 
-**Student:** Hazem Serry  
-**Email:** hazemsery15@gmail.com  
-**GitHub:** https://github.com/Hazemserry90/xv6-riscv-security
-
----
-
-## Project Overview
-
-This project extends the **xv6-riscv** teaching operating system with three
-kernel-level security layers designed to simulate a medical device security
-environment. The implementation adds user authentication, file access control,
-and a syscall audit log to the base xv6 kernel.
-
----
+This project extends the **xv6-riscv** teaching operating system with kernel-level security layers designed to simulate a medical device security environment. The implementation adds user authentication, file access control, and a system call audit log to the base xv6 kernel.
 
 ## Security Layers Implemented
 
-### Phase 1 — User Authentication (8 marks)
-- Login system with hashed passwords (djb2 algorithm)
-- `/etc/passwd` file with pre-populated users
-- Four new syscalls: `login`, `useradd`, `userdel`, `passwd`, `whoami`
-- Shell access blocked without valid credentials
-- Passwords never stored in plaintext
+### 1. User Authentication
+A comprehensive login system has been integrated into the xv6 kernel to control access.
 
-### Phase 2 — File Access Control (8 marks)
-- Unix-style permission bits (owner/group/other) on every inode
-- `uid` and `gid` fields added to `struct dinode` and `struct inode`
-- Two new syscalls: `chmod`, `chown`
-- Kernel enforcement in `fileread()`, `filewrite()`, `sys_open()`
-- Admin (uid=0) bypasses all permission checks
+- **Hashed Passwords**: User passwords are not stored in plaintext. They are hashed using the djb2 algorithm and stored in the `/etc/passwd` file.
+- **Pre-populated Users**: The system comes with pre-populated users (`admin`, `patient`, `doctor`) for demonstration purposes.
+- **Authentication Syscalls**: New system calls have been added to manage users and sessions: `login`, `useradd`, `userdel`, `passwd`, and `whoami`.
+- **Shell Access Control**: Users must provide valid credentials at the login prompt before gaining shell access.
 
-### Phase 3 — Syscall Audit Log (4 marks)
-- Persistent kernel ring buffer (512 entries)
-- Every syscall logged with PID, UID, trap name, tick
-- Human-readable trap names printed to console
-- `audit_read` syscall — admin only (returns EPERM for non-admin)
-- End-to-end demo capturing failed logins and permission denials
+### 2. File Access Control
+A Unix-style discretionary access control mechanism has been implemented to protect files.
 
-### Bonus — Compliance Test Suite (5 marks)
-- 17 automated test cases across all three phases
-- Single command: `comptest`
-- Prints `[PASS]` / `[FAIL]` for each test
-- Full compliance summary at the end
-- Exits with code 0 if all tests pass
+- **Permission Model**: Each file and directory has associated permission bits for owner, group, and other users (read, write, execute).
+- **Ownership**: `uid` (user ID) and `gid` (group ID) have been added to the on-disk (`dinode`) and in-memory (`inode`) structures.
+- **Permission Management Syscalls**: `chmod` and `chown` system calls allow users to manage file permissions and ownership.
+- **Kernel Enforcement**: Permission checks are enforced within the kernel during file operations like `open()`, `read()`, and `write()`.
+- **Admin Privilege**: The root user (uid=0) can bypass all permission checks.
 
----
+### 3. Syscall Audit Log
+A persistent audit trail logs all system call activity for security monitoring and forensics.
 
-## Pre-populated Users
+- **Kernel Ring Buffer**: A persistent ring buffer in kernel memory stores the last 512 system call events.
+- **Detailed Logging**: Each log entry captures the process ID (PID), user ID (UID), system call name, and a timestamp (kernel tick).
+- **Console Output**: For real-time monitoring, a filtered subset of important system calls is printed to the console.
+- **`audit_read` Syscall**: A new system call, `audit_read`, allows the administrator to read the contents of the audit log from user space. Access is restricted to the root user.
+
+### Bonus: Compliance Test Suite
+An automated test suite, `comptest`, is included to validate the functionality of all security features. It runs 17 test cases covering authentication, permissions, and auditing, providing a clear pass/fail summary.
+
+## System Configuration
+
+### Pre-populated Users
 
 | Username | UID | GID | Password   |
 |----------|-----|-----|------------|
-| admin    | 0   | 0   | admin123   |
-| patient  | 1   | 1   | patient123 |
-| doctor   | 2   | 2   | doctor123  |
+| `admin`  | 0   | 0   | `admin123` |
+| `patient`| 1   | 1   | `patient123`|
+| `doctor` | 2   | 2   | `doctor123`|
 
----
+### Protected Files
+The initial file system is configured with several protected files to demonstrate the access control system.
 
-## Protected Files
+| File                  | Owner     | Mode (octal) | Description        |
+|-----------------------|-----------|--------------|--------------------|
+| `/patient/records`    | `patient` | `0444`       | Patient read-only  |
+| `/dosage/insulin.log` | `doctor`  | `0644`       | Doctor write access|
+| `/device/config`      | `admin`   | `0600`       | Admin only         |
+| `/audit/syscall.log`  | `admin`   | `0600`       | Admin only         |
+| `/etc/passwd`         | `admin`   | `0644`       | User credentials   |
 
-| File                  | Owner | Mode | Description          |
-|-----------------------|-------|------|----------------------|
-| /patient/records      | uid=1 | 0444 | Patient read-only    |
-| /dosage/insulin.log   | uid=2 | 0644 | Doctor write access  |
-| /device/config        | uid=0 | 0600 | Admin only           |
-| /audit/syscall.log    | uid=0 | 0600 | Admin only           |
-| /etc/passwd           | uid=0 | 0644 | User credentials     |
+## New System Calls
 
----
-
-## New Syscalls Added
-
-| Syscall      | Number | Description                        |
-|--------------|--------|------------------------------------|
-| useradd      | 22     | Add new user (admin only)          |
-| userdel      | 23     | Delete user (admin only)           |
-| passwd       | 24     | Change password                    |
-| whoami       | 25     | Print current uid/username         |
-| login        | 26     | Authenticate user                  |
-| chmod        | 27     | Change file permissions            |
-| chown        | 28     | Change file ownership (admin only) |
-| audit_read   | 29     | Read audit log (admin only)        |
-
----
-
-## New Files Created
-
-### Kernel Files
-| File                  | Purpose                              |
-|-----------------------|--------------------------------------|
-| kernel/sysauth.c      | Phase 1 authentication syscalls      |
-| kernel/audit.c        | Phase 3 ring buffer + audit_read     |
-
-### Modified Kernel Files
-| File                  | Changes                              |
-|-----------------------|--------------------------------------|
-| kernel/proc.h         | Added uid, gid to struct proc        |
-| kernel/proc.c         | Initialize uid/gid in allocproc()   |
-| kernel/fs.h           | Added uid, gid, mode to struct dinode|
-| kernel/file.h         | Added uid, gid, mode to struct inode |
-| kernel/fs.c           | Copy uid/gid/mode in ilock/iupdate  |
-| kernel/file.c         | Permission checks in read/write      |
-| kernel/sysfile.c      | chmod/chown + permission in open     |
-| kernel/trap.c         | Audit logging + pretty printing      |
-| kernel/main.c         | Added audit_init()                   |
-| kernel/syscall.h      | New syscall numbers                  |
-| kernel/syscall.c      | New syscall table entries            |
-| kernel/defs.h         | New function declarations            |
-| mkfs/mkfs.c           | Security filesystem structure        |
-
-### User Programs
-| File                  | Purpose                              |
-|-----------------------|--------------------------------------|
-| user/login.c          | Login prompt program                 |
-| user/whoami.c         | whoami command                       |
-| user/useradd.c        | useradd command                      |
-| user/userdel.c        | userdel command                      |
-| user/passwd.c         | passwd command                       |
-| user/chmod.c          | chmod command                        |
-| user/chown.c          | chown command                        |
-| user/permtest.c       | Permission test program              |
-| user/auditdemo.c      | Audit log demo program               |
-| user/comptest.c       | Automated compliance test suite      |
-
----
+| Syscall      | ID | Description                                |
+|--------------|----|--------------------------------------------|
+| `useradd`    | 22 | Add a new user (admin only).               |
+| `userdel`    | 23 | Delete a user (admin only).                |
+| `passwd`     | 24 | Change a user's password.                  |
+| `whoami`     | 25 | Print the current user's UID and username. |
+| `login`      | 26 | Authenticate a user session.               |
+| `chmod`      | 27 | Change file permissions.                   |
+| `chown`      | 28 | Change file ownership (admin only).        |
+| `audit_read` | 29 | Read the system call audit log (admin only). |
 
 ## How to Build and Run
 
-### Requirements
-- RISC-V GCC toolchain (riscv64-linux-gnu-gcc)
-- QEMU >= 7.2 (qemu-system-riscv64)
+### Prerequisites
+- A RISC-V GCC toolchain (e.g., `riscv64-unknown-elf-gcc`).
+- QEMU emulator for `riscv64`, version 7.2 or later (`qemu-system-riscv64`).
+
+### Build
+To compile the kernel and user programs, run `make`:
+```sh
+make
+```
+
+### Run
+To start the xv6 operating system in QEMU, run:
+```sh
+make qemu
+```
+You will be greeted by the `xv6 login:` prompt. You can log in using one of the [pre-populated users](#pre-populated-users).
+
+### Running Demonstrations and Tests
+Once logged in, you can run the provided user programs to test the security features.
+
+1.  **Run the automated compliance test suite:**
+    ```sh
+    $ comptest
+    ```
+
+2.  **Run the end-to-end audit demonstration:**
+    ```sh
+    $ auditdemo
+    ```
+
+3.  **Manually test permissions (e.g., as the `patient` user):**
+    ```sh
+    $ permtest
+    ```
+
+## Project Structure
+
+### New Kernel Files
+- `kernel/sysauth.c`: Implements user authentication system calls (`login`, `useradd`, etc.).
+- `kernel/audit.c`: Manages the syscall audit ring buffer and the `audit_read` syscall.
+- `kernel/hash.c`: Provides the djb2 hashing function for passwords.
+
+### Modified Kernel Files
+- `kernel/proc.h`, `kernel/proc.c`: Added `uid` and `gid` to the process structure.
+- `kernel/fs.h`, `kernel/file.h`, `kernel/fs.c`: Added `uid`, `gid`, and `mode` to the inode structures and persist them to disk.
+- `kernel/file.c`: Integrated permission checks into `fileread()` and `filewrite()`.
+- `kernel/sysfile.c`: Implemented `chmod`, `chown`, and integrated permission checks into `sys_open`.
+- `kernel/trap.c`: Added hooks for logging system calls to the audit buffer and printing to the console.
+- `kernel/syscall.h`, `kernel/syscall.c`: Registered the new system call numbers and handlers.
+- `mkfs/mkfs.c`: Modified to create the initial secure file system layout, including directories, protected files, and the `/etc/passwd` file with hashed passwords.
+
+### New User Programs
+- `user/login.c`: The login prompt program that authenticates users.
+- `user/useradd.c`, `user/userdel.c`, `user/passwd.c`, `user/whoami.c`: Command-line tools for user management.
+- `user/chmod.c`, `user/chown.c`: Command-line tools for permission management.
+- `user/auditdemo.c`: A demonstration script that shows the audit log capturing allowed and denied actions.
+- `user/comptest.c`: The automated compliance test suite.
+- `user/permtest.c`: A simple script for manually verifying file permissions.
