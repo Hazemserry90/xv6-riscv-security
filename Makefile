@@ -29,6 +29,7 @@ OBJS = \
   $K/kernelvec.o \
   $K/plic.o \
    $K/sysauth.o \
+   $K/audit.o \
   $K/virtio_disk.o
  
 
@@ -152,6 +153,11 @@ UPROGS=\
 	$U/_useradd\
 	$U/_userdel\
 	$U/_passwd\
+	$U/_permtest\
+	$U/_chmod\
+	$U/_chown\
+	$U/_auditdemo\
+	$U/_comptest
 	
 
 fs.img: mkfs/mkfs README $(UPROGS)

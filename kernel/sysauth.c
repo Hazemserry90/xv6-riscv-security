@@ -384,7 +384,5 @@ sys_whoami(void)
   return 0;
 }
 
-// placeholders so linker succeeds before Phase 2/3
-uint64 sys_chmod(void) { return 0; }
-uint64 sys_chown(void) { return 0; }
-uint64 sys_audit_read(void) { return 0; }
+
+

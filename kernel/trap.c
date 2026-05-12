@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "syscall.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -29,6 +30,81 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+// ============================================================
+// 3.1 — Map trap number to human-readable name
+// ============================================================
+static char*
+get_trap_name(uint64 scause)
+{
+  switch(scause){
+    case 8:  return "SYSCALL";
+    case 12: return "PAGEFAULT_INST";
+    case 13: return "PAGEFAULT_LOAD";
+    case 15: return "PAGEFAULT_STORE";
+    case 2:  return "ILLEGAL_INST";
+    case 3:  return "BREAKPOINT";
+    case 5:  return "LOAD_MISALIGN";
+    case 7:  return "STORE_MISALIGN";
+    default: return "UNKNOWN";
+  }
+}
+
+// ============================================================
+// 3.1 — Map syscall number to human-readable name
+// ============================================================
+static char*
+get_syscall_name(int sysnum)
+{
+  switch(sysnum){
+    case SYS_fork:       return "fork";
+    case SYS_exit:       return "exit";
+    case SYS_wait:       return "wait";
+    case SYS_pipe:       return "pipe";
+    case SYS_read:       return "read";
+    case SYS_kill:       return "kill";
+    case SYS_exec:       return "exec";
+    case SYS_fstat:      return "fstat";
+    case SYS_chdir:      return "chdir";
+    case SYS_dup:        return "dup";
+    case SYS_getpid:     return "getpid";
+    case SYS_sbrk:       return "sbrk";
+    case SYS_pause:      return "pause";
+    case SYS_uptime:     return "uptime";
+    case SYS_open:       return "open";
+    case SYS_write:      return "write";
+    case SYS_mknod:      return "mknod";
+    case SYS_unlink:     return "unlink";
+    case SYS_link:       return "link";
+    case SYS_mkdir:      return "mkdir";
+    case SYS_close:      return "close";
+    case SYS_useradd:    return "useradd";
+    case SYS_userdel:    return "userdel";
+    case SYS_passwd:     return "passwd";
+    case SYS_whoami:     return "whoami";
+    case SYS_login:      return "login";
+    case SYS_chmod:      return "chmod";
+    case SYS_chown:      return "chown";
+    case SYS_audit_read: return "audit_read";
+    default:             return "unknown";
+  }
+}
+
+// ============================================================
+// 3.1 — Should we print this syscall to console?
+// Skip high-frequency noisy syscalls
+// ============================================================
+static int
+should_print_syscall(int sysnum)
+{
+  switch(sysnum){
+    case SYS_write:   return 0; // too noisy
+    case SYS_read:    return 0; // too noisy
+    case SYS_uptime:  return 0; // too noisy
+    case SYS_pause:   return 0; // too noisy
+    default:          return 1; // print everything else
+  }
+}
+
 //
 // handle an interrupt, exception, or system call from user space.
 // called from, and returns to, trampoline.S
@@ -42,13 +118,10 @@ usertrap(void)
   if((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
 
-  // send interrupts and exceptions to kerneltrap(),
-  // since we're now in the kernel.
-  w_stvec((uint64)kernelvec);  //DOC: kernelvec
+  w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
   
-  // save user program counter.
   p->trapframe->epc = r_sepc();
   
   if(r_scause() == 8){
@@ -57,21 +130,45 @@ usertrap(void)
     if(killed(p))
       kexit(-1);
 
-    // sepc points to the ecall instruction,
-    // but we want to return to the next instruction.
     p->trapframe->epc += 4;
 
-    // an interrupt will change sepc, scause, and sstatus,
-    // so enable only now that we're done with those registers.
     intr_on();
 
+    int sysnum = p->trapframe->a7;
+
+    // ✅ 3.2 — Always log ALL syscalls to ring buffer
+    audit_log_event(p->pid, p->uid, sysnum, ticks,
+                    get_syscall_name(sysnum));
+
+    // ✅ 3.1 — Pretty print important syscalls to console
+    if(should_print_syscall(sysnum)){
+      printf("[AUDIT] PID=%d UID=%d TRAP=SYSCALL(%s) EIP=%lx\n",
+             p->pid,
+             p->uid,
+             get_syscall_name(sysnum),
+             p->trapframe->epc);
+    }
+
     syscall();
+
   } else if((which_dev = devintr()) != 0){
     // ok
   } else if((r_scause() == 15 || r_scause() == 13) &&
             vmfault(p->pagetable, r_stval(), (r_scause() == 13)? 1 : 0) != 0) {
     // page fault on lazily-allocated page
+
   } else {
+    // ✅ 3.1 — Pretty print other traps to console
+    printf("[AUDIT] PID=%d UID=%d TRAP=%s EIP=%lx\n",
+           p->pid,
+           p->uid,
+           get_trap_name(r_scause()),
+           r_sepc());
+
+    // ✅ 3.2 — Log other traps to ring buffer
+    audit_log_event(p->pid, p->uid, (int)r_scause(),
+                    ticks, get_trap_name(r_scause()));
+
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
     setkilled(p);
@@ -80,16 +177,13 @@ usertrap(void)
   if(killed(p))
     kexit(-1);
 
-  // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
 
   prepare_return();
 
-  // the user page table to switch to, for trampoline.S
   uint64 satp = MAKE_SATP(p->pagetable);
 
-  // return to trampoline.S; satp value in a0.
   return satp;
 }
 
@@ -101,32 +195,21 @@ prepare_return(void)
 {
   struct proc *p = myproc();
 
-  // we're about to switch the destination of traps from
-  // kerneltrap() to usertrap(). because a trap from kernel
-  // code to usertrap would be a disaster, turn off interrupts.
   intr_off();
 
-  // send syscalls, interrupts, and exceptions to uservec in trampoline.S
   uint64 trampoline_uservec = TRAMPOLINE + (uservec - trampoline);
   w_stvec(trampoline_uservec);
 
-  // set up trapframe values that uservec will need when
-  // the process next traps into the kernel.
-  p->trapframe->kernel_satp = r_satp();         // kernel page table
-  p->trapframe->kernel_sp = p->kstack + PGSIZE; // process's kernel stack
+  p->trapframe->kernel_satp = r_satp();
+  p->trapframe->kernel_sp = p->kstack + PGSIZE;
   p->trapframe->kernel_trap = (uint64)usertrap;
-  p->trapframe->kernel_hartid = r_tp();         // hartid for cpuid()
+  p->trapframe->kernel_hartid = r_tp();
 
-  // set up the registers that trampoline.S's sret will use
-  // to get to user space.
-  
-  // set S Previous Privilege mode to User.
   unsigned long x = r_sstatus();
-  x &= ~SSTATUS_SPP; // clear SPP to 0 for user mode
-  x |= SSTATUS_SPIE; // enable interrupts in user mode
+  x &= ~SSTATUS_SPP;
+  x |= SSTATUS_SPIE;
   w_sstatus(x);
 
-  // set S Exception Program Counter to the saved user pc.
   w_sepc(p->trapframe->epc);
 }
 
@@ -146,17 +229,13 @@ kerneltrap()
     panic("kerneltrap: interrupts enabled");
 
   if((which_dev = devintr()) == 0){
-    // interrupt or trap from an unknown source
     printf("scause=0x%lx sepc=0x%lx stval=0x%lx\n", scause, r_sepc(), r_stval());
     panic("kerneltrap");
   }
 
-  // give up the CPU if this is a timer interrupt.
   if(which_dev == 2 && myproc() != 0)
     yield();
 
-  // the yield() may have caused some traps to occur,
-  // so restore trap registers for use by kernelvec.S's sepc instruction.
   w_sepc(sepc);
   w_sstatus(sstatus);
 }
@@ -170,27 +249,15 @@ clockintr()
     wakeup(&ticks);
     release(&tickslock);
   }
-
-  // ask for the next timer interrupt. this also clears
-  // the interrupt request. 1000000 is about a tenth
-  // of a second.
   w_stimecmp(r_time() + 1000000);
 }
 
-// check if it's an external interrupt or software interrupt,
-// and handle it.
-// returns 2 if timer interrupt,
-// 1 if other device,
-// 0 if not recognized.
 int
 devintr()
 {
   uint64 scause = r_scause();
 
   if(scause == 0x8000000000000009L){
-    // this is a supervisor external interrupt, via PLIC.
-
-    // irq indicates which device interrupted.
     int irq = plic_claim();
 
     if(irq == UART0_IRQ){
@@ -201,19 +268,14 @@ devintr()
       printf("unexpected interrupt irq=%d\n", irq);
     }
 
-    // the PLIC allows each device to raise at most one
-    // interrupt at a time; tell the PLIC the device is
-    // now allowed to interrupt again.
     if(irq)
       plic_complete(irq);
 
     return 1;
   } else if(scause == 0x8000000000000005L){
-    // timer interrupt.
     clockintr();
     return 2;
   } else {
     return 0;
   }
 }
-

@@ -101,6 +101,47 @@ filestat(struct file *f, uint64 addr)
   return -1;
 }
 
+// ============================================================
+// Permission check helper
+// Returns 0 if allowed, -1 if denied
+// mode: 0=read, 1=write, 2=execute
+// ============================================================
+static int
+check_permission(struct inode *ip, int mode)
+{
+  struct proc *p = myproc();
+
+  // uid=0 (admin/root) bypasses ALL permission checks
+  if(p->uid == 0)
+    return 0;
+
+  // Get the file's permission bits
+  short file_mode = ip->mode;
+
+  // Owner check
+  if(p->uid == ip->uid) {
+    if(mode == 0 && (file_mode & 0400)) return 0; // owner read
+    if(mode == 1 && (file_mode & 0200)) return 0; // owner write
+    if(mode == 2 && (file_mode & 0100)) return 0; // owner exec
+    return -1; // owner but no permission
+  }
+
+  // Group check
+  if(p->gid == ip->gid) {
+    if(mode == 0 && (file_mode & 0040)) return 0; // group read
+    if(mode == 1 && (file_mode & 0020)) return 0; // group write
+    if(mode == 2 && (file_mode & 0010)) return 0; // group exec
+    return -1; // same group but no permission
+  }
+
+  // Other check
+  if(mode == 0 && (file_mode & 0004)) return 0; // other read
+  if(mode == 1 && (file_mode & 0002)) return 0; // other write
+  if(mode == 2 && (file_mode & 0001)) return 0; // other exec
+
+  return -1; // denied
+}
+
 // Read from file f.
 // addr is a user virtual address.
 int
@@ -119,6 +160,13 @@ fileread(struct file *f, uint64 addr, int n)
     r = devsw[f->major].read(1, addr, n);
   } else if(f->type == FD_INODE){
     ilock(f->ip);
+
+    // ✅ Phase 2: Check read permission
+    if(check_permission(f->ip, 0) < 0){
+      iunlock(f->ip);
+      return -1;
+    }
+
     if((r = readi(f->ip, 1, addr, f->off, n)) > 0)
       f->off += r;
     iunlock(f->ip);
@@ -159,6 +207,14 @@ filewrite(struct file *f, uint64 addr, int n)
 
       begin_op();
       ilock(f->ip);
+
+      // ✅ Phase 2: Check write permission
+      if(check_permission(f->ip, 1) < 0){
+        iunlock(f->ip);
+        end_op();
+        return -1;
+      }
+
       if ((r = writei(f->ip, 1, addr + i, f->off, n1)) > 0)
         f->off += r;
       iunlock(f->ip);
@@ -177,4 +233,3 @@ filewrite(struct file *f, uint64 addr, int n)
 
   return ret;
 }
-

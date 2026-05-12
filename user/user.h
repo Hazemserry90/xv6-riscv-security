@@ -2,12 +2,12 @@
 
 struct stat;
 
-// Audit log entry structure (must match kernel/audit.h)
+// Audit log entry (must match kernel/audit.c exactly)
 struct audit_entry {
   int pid;
   int uid;
-  unsigned long trapno;
-  unsigned long tick;
+  int trapno;
+  int tick;
   char desc[32];
 };
 

@@ -48,3 +48,7 @@ entry("userdel");
 entry("passwd");
 entry("whoami");
 entry("login");
+
+entry("chmod");
+entry("chown");
+entry("audit_read");

@@ -51,6 +51,45 @@ fdalloc(struct file *f)
   return -1;
 }
 
+// ============================================================
+// ✅ Phase 2: Permission check for sys_open
+// mode: 0=read, 1=write, 2=execute
+// Returns 0 if allowed, -1 if denied
+// ============================================================
+static int
+check_open_permission(struct inode *ip, int omode)
+{
+  struct proc *p = myproc();
+
+  // uid=0 (admin) bypasses all checks
+  if(p->uid == 0)
+    return 0;
+
+  short file_mode = ip->mode;
+  int need_read  = !(omode & O_WRONLY);
+  int need_write = (omode & O_WRONLY) || (omode & O_RDWR);
+
+  // Owner permissions
+  if(p->uid == ip->uid) {
+    if(need_read  && !(file_mode & 0400)) return -1;
+    if(need_write && !(file_mode & 0200)) return -1;
+    return 0;
+  }
+
+  // Group permissions
+  if(p->gid == ip->gid) {
+    if(need_read  && !(file_mode & 0040)) return -1;
+    if(need_write && !(file_mode & 0020)) return -1;
+    return 0;
+  }
+
+  // Other permissions
+  if(need_read  && !(file_mode & 0004)) return -1;
+  if(need_write && !(file_mode & 0002)) return -1;
+
+  return 0;
+}
+
 uint64
 sys_dup(void)
 {
@@ -271,10 +310,16 @@ create(char *path, short type, short major, short minor)
   ip->major = major;
   ip->minor = minor;
   ip->nlink = 1;
+
+  // ✅ Phase 2: New files inherit uid/gid from creating process
+  struct proc *p = myproc();
+  ip->uid  = p->uid;
+  ip->gid  = p->gid;
+  ip->mode = 0644;   // default: rw-r--r--
+
   iupdate(ip);
 
   if(type == T_DIR){  // Create . and .. entries.
-    // No ip->nlink++ for ".": avoid cyclic ref count.
     if(dirlink(ip, ".", ip->inum) < 0 || dirlink(ip, "..", dp->inum) < 0)
       goto fail;
   }
@@ -283,8 +328,7 @@ create(char *path, short type, short major, short minor)
     goto fail;
 
   if(type == T_DIR){
-    // now that success is guaranteed:
-    dp->nlink++;  // for ".."
+    dp->nlink++;
     iupdate(dp);
   }
 
@@ -293,7 +337,6 @@ create(char *path, short type, short major, short minor)
   return ip;
 
  fail:
-  // something went wrong. de-allocate ip.
   ip->nlink = 0;
   iupdate(ip);
   iunlockput(ip);
@@ -339,6 +382,15 @@ sys_open(void)
     iunlockput(ip);
     end_op();
     return -1;
+  }
+
+  // ✅ Phase 2: Check open permission
+  if(ip->type == T_FILE || ip->type == T_DIR){
+    if(check_open_permission(ip, omode) < 0){
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
   }
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
@@ -501,5 +553,75 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+// ============================================================
+// ✅ Phase 2: chmod syscall
+// ============================================================
+uint64
+sys_chmod(void)
+{
+  char path[MAXPATH];
+  int mode;
+  struct inode *ip;
+  struct proc *p = myproc();
+
+  if(argstr(0, path, MAXPATH) < 0)
+    return -1;
+  argint(1, &mode);
+
+  begin_op();
+  if((ip = namei(path)) == 0){
+    end_op();
+    return -1;
+  }
+  ilock(ip);
+
+  // Only owner or admin can chmod
+  if(p->uid != 0 && p->uid != ip->uid){
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  ip->mode = mode & 0777;
+  iupdate(ip);
+  iunlockput(ip);
+  end_op();
+
+  return 0;
+}
+
+// ============================================================
+// ✅ Phase 2: chown syscall
+// ============================================================
+uint64
+sys_chown(void)
+{
+  char path[MAXPATH];
+  int uid;
+  struct inode *ip;
+  struct proc *p = myproc();
+
+  // Only admin can chown
+  if(p->uid != 0)
+    return -1;
+
+  if(argstr(0, path, MAXPATH) < 0)
+    return -1;
+  argint(1, &uid);
+
+  begin_op();
+  if((ip = namei(path)) == 0){
+    end_op();
+    return -1;
+  }
+  ilock(ip);
+  ip->uid = uid;
+  iupdate(ip);
+  iunlockput(ip);
+  end_op();
+
   return 0;
 }

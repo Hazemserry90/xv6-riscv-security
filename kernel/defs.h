@@ -9,6 +9,12 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+// audit.c
+void            audit_init(void);
+void            audit_log_event(int, int, int, int, char*);
+char*           trap_name(int);
+
+
 // hash.c
 unsigned long   hash_djb2(char*);
 
