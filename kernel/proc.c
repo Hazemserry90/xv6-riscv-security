@@ -125,6 +125,10 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  // ✅ Initialize uid/gid
+  p->uid = 0;
+  p->gid = 0;
+
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -168,6 +172,9 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  // ✅ Clear uid/gid
+  p->uid = 0;
+  p->gid = 0;
   p->state = UNUSED;
 }
 
@@ -275,6 +282,10 @@ kfork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // ✅ Copy credentials from parent
+  np->uid = p->uid;
+  np->gid = p->gid;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);

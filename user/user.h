@@ -2,6 +2,29 @@
 
 struct stat;
 
+// Audit log entry structure (must match kernel/audit.h)
+struct audit_entry {
+  int pid;
+  int uid;
+  unsigned long trapno;
+  unsigned long tick;
+  char desc[32];
+};
+
+// Phase 1: Authentication system calls
+int useradd(char *username, int uid, int gid, char *password);
+int userdel(char *username);
+int passwd(char *username, char *newpassword);
+int whoami(void);
+int login(char *username, char *password);
+
+// Phase 2: Permission system calls
+int chmod(char *path, int mode);
+int chown(char *path, int uid);
+
+// Phase 3: Audit system calls
+int audit_read(struct audit_entry *buf, int n);
+
 // system calls
 int fork(void);
 int exit(int) __attribute__((noreturn));

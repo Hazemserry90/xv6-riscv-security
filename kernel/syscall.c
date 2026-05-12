@@ -102,6 +102,20 @@ extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
 
+// Phase 1: Authentication system calls
+extern uint64 sys_useradd(void);
+extern uint64 sys_userdel(void);
+extern uint64 sys_passwd(void);
+extern uint64 sys_whoami(void);
+extern uint64 sys_login(void);
+
+// Phase 2: Permission system calls
+extern uint64 sys_chmod(void);
+extern uint64 sys_chown(void);
+
+// Phase 3: Audit system calls
+extern uint64 sys_audit_read(void);
+
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
 static uint64 (*syscalls[])(void) = {
@@ -126,6 +140,14 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_useradd] sys_useradd,
+[SYS_userdel] sys_userdel,
+[SYS_passwd]  sys_passwd,
+[SYS_whoami]  sys_whoami,
+[SYS_login]   sys_login,
+[SYS_chmod]   sys_chmod,
+[SYS_chown]   sys_chown,
+[SYS_audit_read] sys_audit_read,
 };
 
 void

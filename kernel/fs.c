@@ -193,7 +193,7 @@ iinit()
 static struct inode* iget(uint dev, uint inum);
 
 // Allocate an inode on device dev.
-// Mark it as allocated by  giving it type type.
+// Mark it as allocated by giving it type type.
 // Returns an unlocked but allocated and referenced inode,
 // or NULL if there is no free inode.
 struct inode*
@@ -235,6 +235,9 @@ iupdate(struct inode *ip)
   dip->major = ip->major;
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
+  dip->uid = ip->uid;       // ✅ ADDED
+  dip->gid = ip->gid;       // ✅ ADDED
+  dip->mode = ip->mode;     // ✅ ADDED
   dip->size = ip->size;
   memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
   log_write(bp);
@@ -308,6 +311,9 @@ ilock(struct inode *ip)
     ip->major = dip->major;
     ip->minor = dip->minor;
     ip->nlink = dip->nlink;
+    ip->uid = dip->uid;       // ✅ ADDED
+    ip->gid = dip->gid;       // ✅ ADDED
+    ip->mode = dip->mode;     // ✅ ADDED
     ip->size = dip->size;
     memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
     brelse(bp);

@@ -42,3 +42,9 @@ entry("getpid");
 entry("sbrk");
 entry("pause");
 entry("uptime");
+
+entry("useradd");
+entry("userdel");
+entry("passwd");
+entry("whoami");
+entry("login");

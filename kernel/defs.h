@@ -9,6 +9,9 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+// hash.c
+unsigned long   hash_djb2(char*);
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
